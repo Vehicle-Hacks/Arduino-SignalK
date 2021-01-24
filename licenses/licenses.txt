@@ -1,0 +1,21 @@
+Arduino IDE:
+GNU GPL V2
+
+Arduino Reference:
+Creative Commons AAttribution-Share Alike 3.0 License (https://creativecommons.org/licenses/by-sa/3.0/)
+
+Arduino Ethernet:
+GNU LGPL
+
+Arduino Wire:
+GNU LGPL V2.1
+
+---------------------------
+ArduinoJson:
+The MIT License
+
+BMx280:
+GNU LGPL V2.1
+
+New Ping:
+Proprietary
