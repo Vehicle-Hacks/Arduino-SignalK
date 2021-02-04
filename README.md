@@ -1,5 +1,5 @@
 # Arduino-SignalK
-Some Sketches to make Arduinio useful for SignalK. More Information will follow soon.
+We're working on building a SignalK based system for caravan or boating electronics based on Raspberry PI and Arduino. In this repository we'll provide the Arduino sketches to read in sensors and to display messages. [The central server will be installed on a Raspberry Pi.](https://vehicle-hacks.com/signalk-2/use-a-raspberry-pi-as-signalk-server/). More Information about the project is on our [home page](https://vehicle-hacks.com/signalk-2/), german version is here](https://vehicle-hacks.de/signalk/).
 
-German documentation is here: https://vehicle-hacks.de/signalk/
-English documentation is under construction.
+#Arduino-AVR-Signalk
+This sketch is for AVR based Arduinos, e.g. the Uno or MEGA. It is sending SignalK messages using SignalK over UDP and a Wiznet W5100 Ethernet shield. Timestamps are accuired using UDP. Input examples are a HC-SR04 Ultrasonic, a Bosch BMP280 and a analog input. More details about the sketch are on our [home page](https://vehicle-hacks.com/signalk-2/arduino-uno-as-signalk-source/), german version is [here](https://vehicle-hacks.de/signalk/arduino-uno-als-signalk-quelle/).
