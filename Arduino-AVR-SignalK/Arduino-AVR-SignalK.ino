@@ -1,5 +1,19 @@
-/* 20191103 Ralph Grewe */
-/* This is a Arduino sketch which reads in analog values and sends out SignalK packages by UDP */
+/*   Arduino SignalK
+ *   Copyright (C) 2019 Ralph Grewe
+ *  
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 /* Its based on: The Arduino UDPSendReceiveString example from Nov 3rd 2019: */ 
 /* https://www.arduino.cc/en/Tutorial/UDPSendReceiveString */
 /* The Arduino UdpNtpClient example from Nov. 25th 2019: */
@@ -8,10 +22,9 @@
 /* https://stackoverflow.com/questions/7136385/calculate-day-number-from-an-unix-timestamp-in-a-math-way */
 
 /* ------------------------------- Configuration and includes ------------------------------- */
-#define SERIAL_OUTPUT   // Send SignalK messages on serial output.
+//#define SERIAL_OUTPUT   // Send SignalK messages on serial output.
 #define USE_BMX280      // Read in temperature und pressure from BMx280.
 #define USE_TANKLEVEL   // Measure tank level using an HC-SR04 Ultrasonic.
-//#define RECEIVE_SIGNALK //Receive SignalK messages. Currently not in use.
 
 #include <Ethernet.h>
 #include <EthernetUdp.h>
@@ -20,7 +33,6 @@
 /* Basic Ethernet variables*/
 byte mac[] = {0x90, 0xA2, 0xDA, 0x11, 0x05, 0xAA};
 IPAddress signalkServer(192, 168, 178, 31); //SignalK Server Address
-IPAddress ipBroadcast(192, 168, 178, 255);
 EthernetUDP udp;
 
 /* For SignalK data*/
@@ -52,23 +64,14 @@ NewPing sonar(echoSendPin, echoReceivePin, maxDistance); // NewPing Setup
 BMx280I2C bmx280(I2C_ADDRESS);
 #endif
 
-/* For receieving SignalK messages */
-#if defined (RECEIVE_SIGNALK)
-#include <ArduinoJson.h>
-EthernetClient client;
-const char subscriptionString[] = "{\"context\":\"vessels.self\",\"subscribe\":[{\"path\":\"navigation.speedThroughWater\"},{\"path\":\"environment.depth.belowTransducer\"}]}";
-#endif
-
 /* Analog Input */
 const int analogPin = A0;
 int adcVal = 0;
 float analogValue = 0.0;
 
-/* Input switches */
-const int switchPin = 4;
-bool switchOutput = false;
-
-/* ------------------- SignalK Messages sent by Arduino ------------------- */
+/* ------------------- SignalK Messages sent by Arduino ------------------- 
+ *  We store the messages in flash and load them on usage to save some SRAM
+*/
 const int maxStringLength = 128;
 /* Signalk header */
 const char string_0[] PROGMEM = "{"
@@ -90,24 +93,18 @@ const char string_3[] PROGMEM = "{"
 
 /* Signalk environment temperature message */
 const char string_4[] PROGMEM = "{"
-                            "\"path\": \"environment.inside.galley+.temperature\","
+                            "\"path\": \"environment.inside.galley.temperature\","
                             "\"value\":";
 /* SignalK environment pressure message */
 const char string_5[] PROGMEM = "{"
-                            "\"path\": \"environment.inside.galley+.pressure\","
+                            "\"path\": \"environment.inside.galley.pressure\","
                             "\"value\":";
 /* SignalK environment temperature analog input */
 const char string_6[] PROGMEM = "{"
                             "\"path\": \"environment.inside.engine.temperature\","
                             "\"value\":";
-/* SignalK switch request message */
-const char string_7[] PROGMEM = "{"
-                            "\"requestID\": \"1\","
-                            "\"put\": {"
-                            "  \"path\": \"electrical.switches.light.state\","
-                            "  \"value\": ";
 
-const char *const string_table[] PROGMEM = {string_0, string_1, string_2, string_3, string_4, string_5, string_6, string_7};
+const char *const string_table[] PROGMEM = {string_0, string_1, string_2, string_3, string_4, string_5, string_6};
 
 /* ----------------------------- Actual Code  -------------------------------- */
 void setup() {
@@ -116,7 +113,7 @@ void setup() {
     ; // wait for serial port to connect. Needed for native USB port only
   }
 
-  //-------------------- Setup Ethernet ---------------------------
+  /*-------------------- Setup Ethernet --------------------------- */
   // use DHCP
   Ethernet.begin(mac);
 
@@ -141,10 +138,10 @@ void setup() {
   }
 
 #if defined (USE_BMX280)
-  //-------------------- Initialize the I2C/TWI ---------------------------
+  /*-------------------- Initialize the I2C/TWI ---------------------------*/
   Wire.begin();
 
-  //-------------------- Setup the BMP280/BME280 --------------------------
+  /*-------------------- Setup the BMP280/BME280 --------------------------*/
   if (bmx280.begin())
   {
     bmx280.resetToDefaults();
@@ -164,45 +161,12 @@ void setup() {
     Serial.println(F("BMx280: begin() failed."));
   }
 #endif
-
-  pinMode(switchPin, INPUT);
-
-#if defined (RECEIVE_SIGNALK)
-  if (!client.connect(signalkServer, signalkPort)) {
-    Serial.print("Connection to: ");
-    Serial.print(signalkServer);
-    Serial.println(" failed");
-  } else {
-    Serial.println("TCP Connected");
-    StaticJsonDocument<512> doc;
-
-    //wait for response from the server
-    while (!client.available()) {
-      delay(1);
-    }
-
-    DeserializationError err = deserializeJson(doc, client);
-    if (err) {
-      Serial.print("deserializeJson() failed: ");
-      Serial.println(err.c_str());
-    } else {
-      const char* tmp = doc["name"];
-
-      Serial.print("Server: ");
-      Serial.println(tmp);
-
-      tmp = doc["self"];
-
-      client.println(subscriptionString);
-    }
-  }
-#endif
 }
 
 void loop() {
   char stringBuffer[maxStringLength];
 
-// send request for current time - required for any message.
+// send NTP request for current time - required for any message.
 // after sending the request, we give the server/network some time to answer. That's why we do something in between.
   sendNtpRequest(timeServer);
 
@@ -274,7 +238,7 @@ void loop() {
     #if defined (SERIAL_OUTPUT)
     Serial.print(stringBuffer);
     Serial.print(String(value));
-    Serial.write(", \"units\": \"Pa\"},");
+    Serial.print(", \"units\": \"Pa\"},");
     #endif
 
     if (!bmx280.measure()) {
@@ -286,7 +250,7 @@ void loop() {
   // read and convert ADC values;
   adcVal = analogRead(analogPin);
   analogValue = (adcVal / 1024.0) * 360.0;
-  strcpy_P(stringBuffer, (char * )pgm_read_word(&(string_table[5])));
+  strcpy_P(stringBuffer, (char * )pgm_read_word(&(string_table[6])));
   udp.write(stringBuffer);
   udp.write(String(analogValue).c_str());
   udp.write("}");
@@ -302,55 +266,5 @@ void loop() {
   udp.endPacket();
 #if defined(SERIAL_OUTPUT)
   Serial.println(stringBuffer);
-#endif
-
-  int switchState = digitalRead(switchPin);
-  if (switchState == HIGH) {
-    if (switchOutput == false) {
-      strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[7])));
-      udp.write(stringBuffer);
-      udp.write("1 } }");
-      #if defined (SERIAL_OUTPUT)
-      Serial.print(stringBuffer);
-      Serial.println("1 } }");
-      #endif
-      switchOutput = true;
-    } else {
-      strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[7])));
-      udp.write(stringBuffer);
-      udp.write("0 } }");
-      #if defined (SERIAL_OUTPUT)
-      Serial.print(stringBuffer);
-      Serial.println("0 } }");
-      #endif
-      switchOutput = false;
-    }
-  }
-
-#if defined (RECEIVE_SIGNALK)
-  static float depth;
-  static float velocity;
-  if (client.available()) {
-    DynamicJsonDocument doc(512);
-    
-    deserializeJson(doc, client);
-    JsonObject updates_0 = doc["updates"][0];
-
-    const char* tmp = updates_0["values"][0]["path"];
-    String path = String(tmp);
-
-    if (path == String("environment.depth.belowTransducer")) {
-      depth = doc["updates"][0]["values"][0]["value"];    
-    } else if (path == String("navigation.speedThroughWater")) {
-      velocity = doc["updates"][0]["values"][0]["value"];
-    }
-
-    Serial.println("Depth: ");
-    Serial.println(String(depth));
-    Serial.println("Velocity: ");
-    Serial.println(String(velocity));
-  } else {
-    delay(100);
-  }
 #endif
 }

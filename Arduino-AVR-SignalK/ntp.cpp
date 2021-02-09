@@ -1,3 +1,28 @@
+/*   Arduino - SignalK
+ *   Copyright (C) 2019 Ralph Grewe
+ *  
+ *   This program is free software: you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation, either version 3 of the License, or
+ *   (at your option) any later version.
+
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ *
+ * Its based on: The Arduino UDPSendReceiveString example from Nov 3rd 2019:
+ * https://www.arduino.cc/en/Tutorial/UDPSendReceiveString
+ * The Arduino UdpNtpClient example from Nov. 25th 2019:
+ * https://www.arduino.cc/en/Tutorial/UdpNtpClient
+ * And a stackoverflow post about converting unix timestamp to a date:
+ * https://stackoverflow.com/questions/7136385/calculate-day-number-from-an-unix-timestamp-in-a-math-way
+ */
+
 #include "Ethernet.h"
 #include "EthernetUdp.h"
 #include "ntp.h"
