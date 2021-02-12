@@ -28,18 +28,26 @@ Adafruit_SSD1306 display(OLED_RESET);
 
 #include <ArduinoJson.h>
 
-// Configure serial output
-#define SERIAL_OUTPUT
-//#undef SERIAL_OUTPUT
 
-/* Basic Ethernet variabled*/
+// Basic Ethernet variabled
 WiFiClient client;
 
-/* For SignalK data*/
-const unsigned int signalkPort = 8375;      // SignalK Port which is the same for TCP and UDP
-IPAddress signalkServer(192, 168, 4, 1);
+#define DATA_FROM_FILE
+//#define DATA_FROM_ARDUINO
 
+// For SignalK data
+IPAddress signalkServer(192, 168, 4, 1);
+const unsigned int signalkPort = 8375;      // SignalK Port which is the same for TCP and UDP
+
+#if defined (DATA_FROM_FILE)
+//Subscription string for NMEA from File
 const char subscriptionString[] = "{\"context\":\"vessels.self\",\"subscribe\":[{\"path\":\"navigation.speedThroughWater\"},{\"path\":\"environment.depth.belowTransducer\"}]}";
+#endif
+
+#if defined (DATA_FROM_ARDUINO)
+//Subscription string for data from Arduino Uno
+const char subscriptionString[] = "{\"context\":\"vessels.self\",\"subscribe\":[{\"path\":\"tanks.rainwater.currentLevel\"},{\"path\":\"environment.inside.galley.temperature\"}]}";
+#endif
 
 void setup() {
   // Open serial communications and wait for port to open:
@@ -56,7 +64,8 @@ void setup() {
   display.display();  
 
   //-------------------- Setup WiFi ---------------------------
-
+  
+  WiFi.mode(WIFI_STA);
   WiFi.begin("SignalkWlan", "SignalkWlan!Pwd");
   Serial.print("Connecting Wifi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -76,23 +85,33 @@ void setup() {
 
   delay(500);
 
-  if (!client.connect(signalkServer, signalkPort)) {
+  int tries = 0;
+  while (!client.connect(signalkServer, signalkPort)) {
     Serial.print("Connection to: ");
     Serial.print(signalkServer);
     Serial.println(" failed");
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("Wifi no connected");
+    } else {
+      Serial.println("WiFi still connected");
+    }
     display.clearDisplay();
     display.setCursor(0,0);
     display.print("Connection failed");
     display.println(signalkServer);
+    display.print(" retries: ");
+    display.println(tries);
     display.display();
-  } else {
+    tries++;
+    delay(1000);
+  } /*else {*/
     Serial.println("TCP Connected");
     StaticJsonDocument<512> doc;
 
     //wait for response from the server
     while (!client.available()) {
       delay(1);
-    }
+    //}
 
     DeserializationError err = deserializeJson(doc, client);
     if (err) {
@@ -121,9 +140,11 @@ void setup() {
 }
 
 void loop() {
-  static float depth;
-  static float velocity;
-  if (client.available()) {
+    static float depth;
+    static float velocity;
+    static float tanklevel;
+    static float temperature;    
+    if (client.available()) {
     DynamicJsonDocument doc(2048);
     
     deserializeJson(doc, client);
@@ -132,6 +153,7 @@ void loop() {
     const char* tmp = updates_0["values"][0]["path"];
     String path = String(tmp);
 
+#if defined (DATA_FROM_FILE)
     if (path == String("environment.depth.belowTransducer")) {
       depth = doc["updates"][0]["values"][0]["value"];    
     } else if (path == String("navigation.speedThroughWater")) {
@@ -145,6 +167,23 @@ void loop() {
     display.println("Velocity: ");
     display.println(velocity);
     display.display();
+#endif
+
+#if defined (DATA_FROM_ARDUINO)
+    if (path == String("tanks.rainwater.currentLevel")) {
+      tanklevel = doc["updates"][0]["values"][0]["value"];    
+    } else if (path == String("environment.inside.galley.temperature")) {
+      temperature = doc["updates"][0]["values"][0]["value"];
+    }
+
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.println("Tanklevel: ");
+    display.println(tanklevel);
+    display.println("Temperature: ");
+    display.println(temperature);
+    display.display();
+#endif
   } else {
     delay(100);
   }
