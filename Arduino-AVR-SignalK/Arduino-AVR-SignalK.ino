@@ -30,9 +30,12 @@
 #include <EthernetUdp.h>
 #include "ntp.h"
 
+#include <avr/wdt.h>
+static short errorCount = 0;
+
 /* Basic Ethernet variables*/
 byte mac[] = {0x90, 0xA2, 0xDA, 0x11, 0x05, 0xAA};
-IPAddress signalkServer(192, 168, 178, 31); //SignalK Server Address
+IPAddress signalkServer(192, 168, 178, 53); //SignalK Server Address
 EthernetUDP udp;
 
 /* For SignalK data*/
@@ -51,7 +54,10 @@ const int echoReceivePin = 3;
 const int maxDistance = 320;
 float tankFull  = 0.05;
 float tankEmpty = 0.75;
-float distance;
+const short distanceSize = 5;
+float distance[distanceSize];
+short distanceIdx = 0;
+short distanceElements = 0;
 float level;
 NewPing sonar(echoSendPin, echoReceivePin, maxDistance); // NewPing Setup
 #endif
@@ -121,7 +127,7 @@ void setup() {
   if (Ethernet.hardwareStatus() == EthernetNoHardware) {
     Serial.println(F("No Ethernet Shield"));
     while (true) {
-      delay(1); // do nothing, no point running without Ethernet hardware
+      delay(1000); // do nothing, no point running without Ethernet hardware
     }
   }
   if (Ethernet.linkStatus() == LinkOFF) {
@@ -161,6 +167,8 @@ void setup() {
     Serial.println(F("BMx280: begin() failed."));
   }
 #endif
+
+  wdt_enable(WDTO_4S);
 }
 
 void loop() {
@@ -194,14 +202,25 @@ void loop() {
 
 #if defined (USE_TANKLEVEL)
 // Read distance from the sonar.
-  float duration =  sonar.ping_median(5);
-  distance = float(duration * (0.000343/2));       //Abstand in cm
-  if (distance < tankFull) {
+  float duration =  sonar.ping();
+  distance[distanceIdx] = float(duration * (0.000343/2));       //Abstand in cm
+  distanceIdx = (++distanceIdx) % distanceSize;
+  if (distanceElements < distanceSize) {
+    distanceElements++;
+  }
+
+  float dst = distance[0];
+  for (short i = 1; i < distanceElements; ++i) {
+    dst += distance[i];
+  }
+  dst = dst / float(distanceElements);
+  
+  if (dst < tankFull) {
     level = 1;
-  } else if (distance > tankEmpty) {
+  } else if (dst > tankEmpty) {
     level = 0;
   } else {
-    level = 1 - (distance-tankFull)/tankEmpty;
+    level = 1 - (dst-tankFull)/tankEmpty;
   }
 // Write the tank level
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[3])));
@@ -263,8 +282,17 @@ void loop() {
 // Finalize message and send it.
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[2])));  // Necessary casts and dereferencing, just copy.  
   udp.write(stringBuffer);
-  udp.endPacket();
+  if (!udp.endPacket()) {
+    Serial.print("Error writing packet: ");
+    Serial.println(errorCount);
+    errorCount++;
+    if (errorCount > 5) {
+      delay(160000);
+    }
+  }
 #if defined(SERIAL_OUTPUT)
   Serial.println(stringBuffer);
 #endif
+
+  wdt_reset();
 }
