@@ -23,11 +23,13 @@
 
 /* ------------------------------- Configuration and includes ------------------------------- */
 //#define SERIAL_OUTPUT   // Send SignalK messages on serial output.
-#define USE_BMX280      // Read in temperature und pressure from BMx280.
+//#define USE_BMX280      // Read in temperature und pressure from BMx280.
 #define USE_TANKLEVEL   // Measure tank level using an HC-SR04 Ultrasonic.
 
 #include <Ethernet.h>
+#include <EthernetClient.h>
 #include <EthernetUdp.h>
+#include <ArduinoHttpClient.h>
 #include "ntp.h"
 
 #include <avr/wdt.h>
@@ -36,11 +38,12 @@ static short errorCount = 0;
 /* Basic Ethernet variables*/
 byte mac[] = {0x90, 0xA2, 0xDA, 0x11, 0x05, 0xAA};
 IPAddress signalkServer(192, 168, 178, 53); //SignalK Server Address
-EthernetUDP udp;
-
 /* For SignalK data*/
 const unsigned int signalkPort = 8375;      // SignalK Port of the SignalK Server for UDP communication
-// buffers for receiving and sending data
+
+EthernetUDP udp;
+EthernetClient ethernetClient;
+WebSocketClient webSocketClient = WebSocketClient(ethernetClient, signalkServer, signalkPort);
 
 /* For NTP */
 //const char timeServer[] = "time.nist.gov"; // time.nist.gov NTP server
@@ -134,7 +137,7 @@ void setup() {
     Serial.println(F("No Ethernet cable"));
   }
 
-  // start UDP
+  // start UDP - for NTP
   if (udp.begin(signalkPort))
   {
     Serial.print(F("UDP Port:"));
@@ -142,6 +145,8 @@ void setup() {
   } else {
     Serial.println(F("UDP error"));
   }
+
+  webSocketClient.begin();
 
 #if defined (USE_BMX280)
   /*-------------------- Initialize the I2C/TWI ---------------------------*/
@@ -174,125 +179,128 @@ void setup() {
 void loop() {
   char stringBuffer[maxStringLength];
 
-// send NTP request for current time - required for any message.
-// after sending the request, we give the server/network some time to answer. That's why we do something in between.
-  sendNtpRequest(timeServer);
-
-// read SignalK Header from Flash
-  udp.beginPacket(signalkServer, signalkPort);
-  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[0])));
-  udp.write(stringBuffer);
-#if defined(SERIAL_OUTPUT)
-  Serial.print(stringBuffer);
-#endif
-
-// Now get and write the NTP timestamp
-  readNtpTimestamp(stringBuffer);
-  udp.write(stringBuffer);
-#if defined(SERIAL_OUTPUT)
-  Serial.print(stringBuffer);
-#endif
-
-// Get and write value array start
-  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[1])));
-  udp.write(stringBuffer);
-#if defined(SERIAL_OUTPUT)
-  Serial.print(stringBuffer);
-#endif
-
-#if defined (USE_TANKLEVEL)
-// Read distance from the sonar.
-  float duration =  sonar.ping();
-  distance[distanceIdx] = float(duration * (0.000343/2));       //Abstand in cm
-  distanceIdx = (++distanceIdx) % distanceSize;
-  if (distanceElements < distanceSize) {
-    distanceElements++;
-  }
-
-  float dst = distance[0];
-  for (short i = 1; i < distanceElements; ++i) {
-    dst += distance[i];
-  }
-  dst = dst / float(distanceElements);
+  if (webSocketClient.connected()) {
   
-  if (dst < tankFull) {
-    level = 1;
-  } else if (dst > tankEmpty) {
-    level = 0;
-  } else {
-    level = 1 - (dst-tankFull)/tankEmpty;
-  }
-// Write the tank level
-  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[3])));
-  udp.write(stringBuffer);
-  udp.write(String(level).c_str());
-  udp.write("},");
-#if defined(SERIAL_OUTPUT)
-  Serial.print(stringBuffer);
-  Serial.print(String(level));
-  Serial.print("},");
-#endif
-#endif
-
-#if defined (USE_BMX280)
-// Get and write temperature/pressure from the BMP280
-  if (bmx280.hasValue()) 
-  { 
-    float value = bmx280.getTemperature();
-    strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[4])));
-    udp.write(stringBuffer);
-    udp.write(String(value).c_str());
-    udp.write(", \"units\": \"K\"},");
-    #if defined (SERIAL_OUTPUT)
-    Serial.print(stringBuffer);
-    Serial.print(String(value));
-    Serial.print(", \"units\": \"K\"},");
-    #endif
-
-    value = bmx280.getPressure();
-    strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[5])));
-    udp.write(stringBuffer);
-    udp.write(String(value).c_str());
-    udp.write(", \"units\": \"Pa\"},");
-    #if defined (SERIAL_OUTPUT)
-    Serial.print(stringBuffer);
-    Serial.print(String(value));
-    Serial.print(", \"units\": \"Pa\"},");
-    #endif
-
-    if (!bmx280.measure()) {
-      Serial.print(F("bmx280: could not start measurement"));
-    }
-  }
-#endif
+  // send NTP request for current time - required for any message.
+  // after sending the request, we give the server/network some time to answer. That's why we do something in between.
+    sendNtpRequest(timeServer);
   
-  // read and convert ADC values;
-  adcVal = analogRead(analogPin);
-  analogValue = (adcVal / 1024.0) * 360.0;
-  strcpy_P(stringBuffer, (char * )pgm_read_word(&(string_table[6])));
-  udp.write(stringBuffer);
-  udp.write(String(analogValue).c_str());
-  udp.write("}");
-#if defined (SERIAL_OUTPUT)
-  Serial.print(stringBuffer);
-  Serial.print(String(analogValue));
-  Serial.print("}");
-#endif
-
-// Finalize message and send it.
-  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[2])));  // Necessary casts and dereferencing, just copy.  
-  udp.write(stringBuffer);
-  if (!udp.endPacket()) {
-    Serial.print("Error writing packet: ");
-    Serial.println(errorCount);
-    errorCount++;
-    if (errorCount > 5) {
-      delay(160000);
+  // read SignalK Header from Flash
+    webSocketClient.beginMessage(TYPE_TEXT);
+    strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[0])));
+    webSocketClient.print(stringBuffer);
+  #if defined(SERIAL_OUTPUT)
+    Serial.print(stringBuffer);
+  #endif
+  
+  // Now get and write the NTP timestamp
+    readNtpTimestamp(stringBuffer);
+    webSocketClient.print(stringBuffer);
+  #if defined(SERIAL_OUTPUT)
+    Serial.print(stringBuffer);
+  #endif
+  
+  // Get and write value array start
+    strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[1])));
+    webSocketClient.print(stringBuffer);
+  #if defined(SERIAL_OUTPUT)
+    Serial.print(stringBuffer);
+  #endif
+  
+  #if defined (USE_TANKLEVEL)
+  // Read distance from the sonar.
+    float duration =  sonar.ping();
+    distance[distanceIdx] = float(duration * (0.000343/2));       //Abstand in cm
+    distanceIdx = (++distanceIdx) % distanceSize;
+    if (distanceElements < distanceSize) {
+      distanceElements++;
     }
+  
+    float dst = distance[0];
+    for (short i = 1; i < distanceElements; ++i) {
+      dst += distance[i];
+    }
+    dst = dst / float(distanceElements);
+    
+    if (dst < tankFull) {
+      level = 1;
+    } else if (dst > tankEmpty) {
+      level = 0;
+    } else {
+      level = 1 - (dst-tankFull)/tankEmpty;
+    }
+  // Write the tank level
+    strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[3])));
+    webSocketClient.print(stringBuffer);
+    webSocketClient.print(String(level).c_str());
+    webSocketClient.print("},");
+  #if defined(SERIAL_OUTPUT)
+    Serial.print(stringBuffer);
+    Serial.print(String(level));
+    Serial.print("},");
+  #endif
+  #endif
+  
+  #if defined (USE_BMX280)
+  // Get and write temperature/pressure from the BMP280
+    if (bmx280.hasValue()) 
+    { 
+      float value = bmx280.getTemperature();
+      strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[4])));
+      webSocketClient.print(stringBuffer);
+      webSocketClient.print(String(value).c_str());
+      webSocketClient.print(", \"units\": \"K\"},");
+      #if defined (SERIAL_OUTPUT)
+      Serial.print(stringBuffer);
+      Serial.print(String(value));
+      Serial.print(", \"units\": \"K\"},");
+      #endif
+  
+      value = bmx280.getPressure();
+      strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[5])));
+      webSocketClient.print(stringBuffer);
+      webSocketClient.print(String(value).c_str());
+      webSocketClient.print(", \"units\": \"Pa\"},");
+      #if defined (SERIAL_OUTPUT)
+      Serial.print(stringBuffer);
+      Serial.print(String(value));
+      Serial.print(", \"units\": \"Pa\"},");
+      #endif
+  
+      if (!bmx280.measure()) {
+        Serial.print(F("bmx280: could not start measurement"));
+      }
+    }
+  #endif
+    
+    // read and convert ADC values;
+    adcVal = analogRead(analogPin);
+    analogValue = (adcVal / 1024.0) * 360.0;
+    strcpy_P(stringBuffer, (char * )pgm_read_word(&(string_table[6])));
+    webSocketClient.print(stringBuffer);
+    webSocketClient.print(String(analogValue).c_str());
+    webSocketClient.print("}");
+  #if defined (SERIAL_OUTPUT)
+    Serial.print(stringBuffer);
+    Serial.print(String(analogValue));
+    Serial.print("}");
+  #endif
+  
+  // Finalize message and send it.
+    strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[2])));  // Necessary casts and dereferencing, just copy.  
+    webSocketClient.print(stringBuffer);
+    if (!udp.endPacket()) {
+      Serial.print("Error writing packet: ");
+      Serial.println(errorCount);
+      errorCount++;
+      if (errorCount > 5) {
+        delay(160000);
+      }
+    }
+  #if defined(SERIAL_OUTPUT)
+    Serial.println(stringBuffer);
+  #endif
   }
-#if defined(SERIAL_OUTPUT)
-  Serial.println(stringBuffer);
-#endif
 
   wdt_reset();
 }
