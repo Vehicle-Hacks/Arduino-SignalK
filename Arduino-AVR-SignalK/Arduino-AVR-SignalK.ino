@@ -24,16 +24,13 @@
 /* ------------------------------- Configuration and includes ------------------------------- */
 //#define SERIAL_OUTPUT   // Send SignalK messages on serial output.
 //#define USE_BMX280      // Read in temperature und pressure from BMx280.
-#define USE_TANKLEVEL   // Measure tank level using an HC-SR04 Ultrasonic.
+//#define USE_TANKLEVEL   // Measure tank level using an HC-SR04 Ultrasonic.
 
 #include <Ethernet.h>
 #include <EthernetClient.h>
 #include <EthernetUdp.h>
 #include <ArduinoHttpClient.h>
 #include "ntp.h"
-
-#include <avr/wdt.h>
-static short errorCount = 0;
 
 /* Basic Ethernet variables*/
 byte mac[] = {0x90, 0xA2, 0xDA, 0x11, 0x05, 0xAA};
@@ -43,7 +40,7 @@ const unsigned int signalkPort = 8375;      // SignalK Port of the SignalK Serve
 
 EthernetUDP udp;
 EthernetClient ethernetClient;
-WebSocketClient webSocketClient = WebSocketClient(ethernetClient, signalkServer, signalkPort);
+WebSocketClient webSocketClient = WebSocketClient(ethernetClient, signalkServer, 3000);
 
 /* For NTP */
 //const char timeServer[] = "time.nist.gov"; // time.nist.gov NTP server
@@ -121,6 +118,7 @@ void setup() {
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
+  Serial.println(F("Setup"));
 
   /*-------------------- Setup Ethernet --------------------------- */
   // use DHCP
@@ -146,7 +144,15 @@ void setup() {
     Serial.println(F("UDP error"));
   }
 
-  webSocketClient.begin();
+  webSocketClient.begin(F("/signalk/v1/stream"));
+
+  // check if a message is available to be received
+  int messageSize = webSocketClient.parseMessage();
+
+  if (messageSize > 0) {
+    Serial.println("Received a message:");
+    Serial.println(webSocketClient.readString());
+  }  
 
 #if defined (USE_BMX280)
   /*-------------------- Initialize the I2C/TWI ---------------------------*/
@@ -173,18 +179,20 @@ void setup() {
   }
 #endif
 
-  wdt_enable(WDTO_4S);
+  Serial.println(F("Setup finished"));
 }
 
 void loop() {
   char stringBuffer[maxStringLength];
 
   if (webSocketClient.connected()) {
+    Serial.println(F("Sending Package"));
   
   // send NTP request for current time - required for any message.
   // after sending the request, we give the server/network some time to answer. That's why we do something in between.
-    sendNtpRequest(timeServer);
-  
+  //  sendNtpRequest(timeServer);
+
+    Serial.println(F("Writing header"));
   // read SignalK Header from Flash
     webSocketClient.beginMessage(TYPE_TEXT);
     strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[0])));
@@ -192,9 +200,9 @@ void loop() {
   #if defined(SERIAL_OUTPUT)
     Serial.print(stringBuffer);
   #endif
-  
+    Serial.println(F("Reading NTP timestamp"));
   // Now get and write the NTP timestamp
-    readNtpTimestamp(stringBuffer);
+  //  readNtpTimestamp(stringBuffer);
     webSocketClient.print(stringBuffer);
   #if defined(SERIAL_OUTPUT)
     Serial.print(stringBuffer);
@@ -206,7 +214,8 @@ void loop() {
   #if defined(SERIAL_OUTPUT)
     Serial.print(stringBuffer);
   #endif
-  
+
+    Serial.print("Sent header");
   #if defined (USE_TANKLEVEL)
   // Read distance from the sonar.
     float duration =  sonar.ping();
@@ -240,7 +249,7 @@ void loop() {
     Serial.print("},");
   #endif
   #endif
-  
+    Serial.println("Sent tanklevel");
   #if defined (USE_BMX280)
   // Get and write temperature/pressure from the BMP280
     if (bmx280.hasValue()) 
@@ -289,18 +298,22 @@ void loop() {
   // Finalize message and send it.
     strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[2])));  // Necessary casts and dereferencing, just copy.  
     webSocketClient.print(stringBuffer);
-    if (!udp.endPacket()) {
+    if (!webSocketClient.endMessage()) {
       Serial.print("Error writing packet: ");
-      Serial.println(errorCount);
-      errorCount++;
-      if (errorCount > 5) {
-        delay(160000);
-      }
+    } else {
+      Serial.print("Sent package...");
     }
   #if defined(SERIAL_OUTPUT)
     Serial.println(stringBuffer);
   #endif
   }
 
-  wdt_reset();
+  // check if a message is available to be received
+  int messageSize = webSocketClient.parseMessage();
+
+  if (messageSize > 0) {
+    Serial.println(F("Loop message:"));
+    Serial.println(webSocketClient.readString());
+  }  
+
 }
