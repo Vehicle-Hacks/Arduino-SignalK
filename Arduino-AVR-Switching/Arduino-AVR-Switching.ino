@@ -49,7 +49,7 @@ char stringBuffer[maxStringLength];
 const char string_0[] PROGMEM = "{"
                            "\"requestId\": \"";
 const char string_1[] PROGMEM = "\",\"put\":{"
-                                  "\"path\":\"electrical.testswitch\","
+                                  "\"path\":\"electrical.inputs.testinput\","
                                   "\"value\":";
 
 const char *const string_table[] PROGMEM = {string_0, string_1};
@@ -111,6 +111,7 @@ void setup() {
 }
 
 void loop() {
+  // Check if we received a message from the server and process it
   int messageSize = webSocketClient.parseMessage();
   if (messageSize > 0) {
     DynamicJsonDocument doc(256);
@@ -121,7 +122,6 @@ void loop() {
     } else {
       if (doc.containsKey("requestId")) {
         const char* id = doc["requestId"];
-        Serial.println(id);
         int statusCode = doc["statusCode"];
         if (statusCode == 200) {
           ledBlinking = false;
@@ -138,7 +138,8 @@ void loop() {
       }
     }
   }
-  
+
+  // Check if the switch is pressed and process it
   int switchState = digitalRead(switchPin);
   if (switchState == HIGH) {
     if (switchPressed == false) {
@@ -160,6 +161,7 @@ void loop() {
     switchPressed = false;
   }
 
+  // Make the LED blinking while waiting for a response from the server
   if (ledBlinking) {
     if (millis() - lastBlink > 250) {
       ledState = !ledState;
