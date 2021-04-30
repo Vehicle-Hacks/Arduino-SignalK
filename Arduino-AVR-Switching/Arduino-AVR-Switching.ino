@@ -16,37 +16,28 @@
  */
 
 /* ------------------------------- Configuration and includes ------------------------------- */
-
 #include <Ethernet.h>
-#include <EthernetUdp.h>
 #include <EthernetClient.h>
 #include <ArduinoHttpClient.h>
-#include "ntp.h"
+#include <ArduinoJson.h>
 
 /* Basic Ethernet variables*/
 byte mac[] = {0x90, 0xA2, 0xDA, 0x11, 0x05, 0xAA};
 IPAddress signalkServer(192, 168, 178, 53); //SignalK Server Address
-EthernetUDP udp;
 EthernetClient ethernetClient;
 WebSocketClient webSocketClient = WebSocketClient(ethernetClient, signalkServer, 3000);
-
-/* For SignalK data*/
-const unsigned int signalkPort = 8375;      // SignalK Port of the SignalK Server for UDP communication
-// buffers for receiving and sending data
-
-/* For NTP */
-//const char timeServer[] = "time.nist.gov"; // time.nist.gov NTP server
-const char timeServer[] = "fritz.box"; // time.nist.gov NTP server
-
-/* Analog Input */
-const int analogPin = A0;
-int adcVal = 0;
-float analogValue = 0.0;
 
 /* Switch Input */
 const int switchPin = 4;
 bool switchOutput = false;
 bool switchPressed = false;
+
+/* LED Output */
+const int ledPin = 5;
+int targetState = 0;
+bool ledBlinking = false;
+bool ledState = 0;
+unsigned long lastBlink = 0;
 
 /* ------------------- SignalK Messages sent by Arduino ------------------- 
  *  We store the messages in flash and load them on usage to save some SRAM
@@ -70,25 +61,18 @@ void switchStateChanged(int state) {
     webSocketClient.beginMessage(TYPE_TEXT);
     strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[0])));
     webSocketClient.print(stringBuffer);
-    Serial.print(stringBuffer);
 
     // SignalK put request ID
     webSocketClient.print("12345-12345-12345");
-    Serial.print("12345-12345-12345");
 
     strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[1])));
     webSocketClient.print(stringBuffer);
-    Serial.print(stringBuffer);
     webSocketClient.print(String(state).c_str());
-    Serial.print(String(state).c_str());
     webSocketClient.print("}}");
-    Serial.print("}}");
     int result = webSocketClient.endMessage();
     if (result) {
-      Serial.print("Error writing packet: ");
+      Serial.print(F("Error writing packet: "));
       Serial.println(result);
-    } else {
-      Serial.println("Sent message");    
     }
   } else {
     Serial.println(F("Error: Websocket not connected"));
@@ -118,34 +102,41 @@ void setup() {
   }
 
   //start Websocket client
-  webSocketClient.begin(F("/signalk/v1/stream"));
-
-  // start UDP
-  if (udp.begin(signalkPort))
-  {
-    Serial.print(F("UDP Port:"));
-    Serial.println(signalkPort);
-  } else {
-    Serial.println(F("UDP error"));
-  }
+  webSocketClient.begin(F("/signalk/v1/stream?subscribe=none"));
 
   pinMode(switchPin, INPUT);
+  pinMode(ledPin, OUTPUT);
+
+  lastBlink = millis();
 }
 
 void loop() {
-  char stringBuffer[maxStringLength];
-
-// send NTP request for current time - required for any message.
-// after sending the request, we give the server/network some time to answer. That's why we do something in between.
-  if (webSocketClient.connected()) {  
-    sendNtpRequest(timeServer);
-    readNtpTimestamp(stringBuffer);
-  }
-
   int messageSize = webSocketClient.parseMessage();
   if (messageSize > 0) {
-    Serial.println("Received a message:");
-    Serial.println(webSocketClient.readString());
+    DynamicJsonDocument doc(256);
+    DeserializationError error = deserializeJson(doc, webSocketClient);
+    if (error) {
+      Serial.print(F("Can not parse JSON: "));
+      Serial.println(error.f_str());
+    } else {
+      if (doc.containsKey("requestId")) {
+        const char* id = doc["requestId"];
+        Serial.println(id);
+        int statusCode = doc["statusCode"];
+        if (statusCode == 200) {
+          ledBlinking = false;
+          digitalWrite(ledPin, targetState);
+        } else {
+          Serial.print(F("Switching Error: "));
+          Serial.println(String(statusCode));
+        }
+      } else if (doc.containsKey("name")) {
+        Serial.print(F("Connected to: "));
+        Serial.println(doc["name"].as<const char*>());
+        Serial.print(F("Version: "));
+        Serial.println(doc["version"].as<const char*>());
+      }
+    }
   }
   
   int switchState = digitalRead(switchPin);
@@ -154,16 +145,26 @@ void loop() {
       /* Switch just changed state to high, so do something */
       switchPressed = true;
       if (switchOutput == false) {
-        Serial.println("Switch on");
         switchStateChanged(1);
+        targetState = 1;
+        ledBlinking = true;
         switchOutput = true;
       } else {
-        Serial.println("Switch off");
         switchStateChanged(0);
+        targetState = 0;
+        ledBlinking = true;
         switchOutput = false;
       }
     }
   } else {
     switchPressed = false;
+  }
+
+  if (ledBlinking) {
+    if (millis() - lastBlink > 250) {
+      ledState = !ledState;
+      digitalWrite(ledPin, ledState);
+      lastBlink = millis();
+    }
   }
 }
