@@ -18,6 +18,7 @@
 /* ------------------------------- Configuration and includes ------------------------------- */
 #include <Ethernet.h>
 #include <EthernetClient.h>
+#include <EthernetUdp.h>
 #include <ArduinoHttpClient.h>
 #include <ArduinoJson.h>
 #include <hss-board-arduino.hpp>
@@ -27,6 +28,9 @@ byte mac[] = {0x90, 0xA2, 0xDA, 0x11, 0x05, 0xAA};
 IPAddress signalkServer(192, 168, 178, 33); //SignalK Server Address
 EthernetClient ethernetClient;
 WebSocketClient webSocketClient = WebSocketClient(ethernetClient, signalkServer, 3000);
+
+EthernetUDP udp;
+const int signalkPort = 8375;
 
 /* Switch Input */
 const int switchPin = 49;
@@ -71,9 +75,9 @@ const char string_4[] PROGMEM = "] }] }"; //values "]", updates "}]", final "}"
 
 /* SignalK tank level message */
 const char string_5[] PROGMEM = "{"
-                              "\"path\": \"electrical.load.1.\",";
-const char string_6[] PROGMEM = "voltage";
-const char string_7[] PROGMEM = "current";
+                              "\"path\": \"electrical.load.1.";
+const char string_6[] PROGMEM = "voltage\",";
+const char string_7[] PROGMEM = "current\",";
 const char string_8[] PROGMEM = "\"value\":";                                 
 
 const char *const string_table[] PROGMEM = {string_0, string_1, string_2, string_3, string_4, string_5, string_6, string_7, string_8};
@@ -110,6 +114,7 @@ void setup() {
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
+  Serial.println("Initializing...");
 
   /*-------------------- Setup Ethernet --------------------------- */
   // use DHCP
@@ -128,6 +133,15 @@ void setup() {
 
   //start Websocket client
   webSocketClient.begin(F("/signalk/v1/stream?subscribe=none"));
+
+  // start UDP
+  if (udp.begin(signalkPort))
+  {
+    Serial.print(F("UDP Port:"));
+    Serial.println(signalkPort);
+  } else {
+    Serial.println(F("UDP error"));
+  }  
 
   //initialize switch and LED
   pinMode(switchPin, INPUT);
@@ -200,53 +214,41 @@ void loop() {
   }
 
   // Send switch data
-  webSocketClient.beginMessage(TYPE_TEXT);
+  udp.beginPacket(signalkServer, signalkPort);
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[2])));
-//  webSocketClient.print(stringBuffer);
-//  Serial.print(stringBuffer);
-  webSocketClient.print("0");
-//  Serial.print("0");
+  udp.write(stringBuffer);
+  udp.write("0");
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[3])));
-  webSocketClient.print(stringBuffer);
-//  Serial.print(stringBuffer);
+  udp.write(stringBuffer);
+  
   /* Voltage */
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[5])));
-  webSocketClient.print(stringBuffer);
-//  Serial.print(stringBuffer);
+  udp.write(stringBuffer);
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[6])));
-  webSocketClient.print(stringBuffer);
-//  Serial.print(stringBuffer);
+  udp.write(stringBuffer);
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[8])));
+  udp.write(stringBuffer);
 
   float value = HSS.readVss();
-  webSocketClient.print(String(value));
-//  Serial.print(value);
-  webSocketClient.print("},");
-//  Serial.print("},");
+  udp.write(String(value).c_str());
+  udp.write("},");
 
   /* Current */
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[5])));
-  webSocketClient.print(stringBuffer);
-//  Serial.print(stringBuffer);
+  udp.write(stringBuffer);
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[7])));
-  webSocketClient.print(stringBuffer);
-//  Serial.print(stringBuffer);
+  udp.write(stringBuffer);
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[8])));
+  udp.write(stringBuffer);
   
   int counter = 1;
   value = HSS.readIsx(counter);
-  webSocketClient.print(String(value));
-//  Serial.print(value);
+  udp.write(String(value).c_str());
+  udp.write("}");
   
   /* End of message */
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[4])));
-  webSocketClient.print(stringBuffer);
-//  Serial.print(stringBuffer);
-  
+  udp.write(stringBuffer);
 
-  int result = webSocketClient.endMessage();
-  if (result) {
-    Serial.print(F("Error writing packet: "));
-    Serial.println(result);
-  }  
-  
-  
+  udp.endPacket();  
 }
