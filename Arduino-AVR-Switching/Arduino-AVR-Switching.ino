@@ -25,7 +25,7 @@
 
 /* Basic Ethernet variables*/
 byte mac[] = {0x90, 0xA2, 0xDA, 0x11, 0x05, 0xAA};
-IPAddress signalkServer(192, 168, 178, 33); //SignalK Server Address
+IPAddress signalkServer(192, 168, 188, 20); //SignalK Server Address
 EthernetClient ethernetClient;
 WebSocketClient webSocketClient = WebSocketClient(ethernetClient, signalkServer, 3000);
 
@@ -193,11 +193,13 @@ void loop() {
         targetState = 1;
         ledBlinking = true;
         switchOutput = true;
+        HSS.switchHxOn(1);
       } else {
         switchStateChanged(0);
         targetState = 0;
         ledBlinking = true;
         switchOutput = false;
+        HSS.switchHxOff(1);
       }
     }
   } else {
