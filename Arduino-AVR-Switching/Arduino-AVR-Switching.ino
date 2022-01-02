@@ -18,41 +18,70 @@
 /* ------------------------------- Configuration and includes ------------------------------- */
 #include <Ethernet.h>
 #include <EthernetClient.h>
+#include <EthernetUdp.h>
 #include <ArduinoHttpClient.h>
 #include <ArduinoJson.h>
+#include <hss-board-arduino.hpp>
 
 /* Basic Ethernet variables*/
 byte mac[] = {0x90, 0xA2, 0xDA, 0x11, 0x05, 0xAA};
-IPAddress signalkServer(192, 168, 178, 53); //SignalK Server Address
+IPAddress signalkServer(192, 168, 188, 28); //SignalK Server Address
 EthernetClient ethernetClient;
 WebSocketClient webSocketClient = WebSocketClient(ethernetClient, signalkServer, 3000);
 
+EthernetUDP udp;
+const int signalkPort = 8375;
+
 /* Switch Input */
-const int switchPin = 4;
+const int switchPin = 49;
 bool switchOutput = false;
 bool switchPressed = false;
 
 /* LED Output */
-const int ledPin = 5;
+const int ledPin = 48;
 int targetState = 0;
 bool ledBlinking = false;
 bool ledState = 0;
 unsigned long lastBlink = 0;
 
+/* Power Output by SmartFET'S */
+HssBoardIno HSS = HssBoardIno(&BTS7002);
+
 /* ------------------- SignalK Messages sent by Arduino ------------------- 
  *  We store the messages in flash and load them on usage to save some SRAM
 */
-const int maxStringLength = 128;
+const int maxStringLength = 512;
 char stringBuffer[maxStringLength];
 
-/* Signalk request header */
+/* Signalk request messages */
 const char string_0[] PROGMEM = "{"
                            "\"requestId\": \"";
 const char string_1[] PROGMEM = "\",\"put\":{"
                                   "\"path\":\"electrical.inputs.testinput\","
                                   "\"value\":";
 
-const char *const string_table[] PROGMEM = {string_0, string_1};
+/* SignalK Switch State messages */
+const char string_2[] PROGMEM = "{"
+                           "\"updates\": [{"
+                           "\"source\": {"
+                           "\"label\": \"Arduino SignalK\","
+                           "\"type\": \"signalk\""
+                           "},"
+                           "\"timestamp\": \"";
+/* Signalk values begin */
+const char string_3[] PROGMEM = "\",\"values\": [";
+/* Signalk message end */
+const char string_4[] PROGMEM = "] }] }"; //values "]", updates "}]", final "}"
+
+/* SignalK tank level message */
+const char string_5[] PROGMEM = "{"
+                              "\"path\": \"electrical.load.1.";
+const char string_6[] PROGMEM = "voltage\",";
+const char string_7[] PROGMEM = "current\",";
+const char string_8[] PROGMEM = "\"value\":";                                 
+
+const char *const string_table[] PROGMEM = {string_0, string_1, string_2, string_3, string_4, string_5, string_6, string_7, string_8};
+
 
 /* ----------------------------- Actual Code  -------------------------------- */
 void switchStateChanged(int state) {
@@ -85,6 +114,7 @@ void setup() {
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
+  Serial.println("Initializing...");
 
   /*-------------------- Setup Ethernet --------------------------- */
   // use DHCP
@@ -104,10 +134,23 @@ void setup() {
   //start Websocket client
   webSocketClient.begin(F("/signalk/v1/stream?subscribe=none"));
 
+  //initialize switch and LED
   pinMode(switchPin, INPUT);
   pinMode(ledPin, OUTPUT);
 
   lastBlink = millis();
+
+  // start UDP
+  if (udp.begin(signalkPort))
+  {
+    Serial.print(F("UDP Port:"));
+    Serial.println(signalkPort);
+  } else {
+    Serial.println(F("UDP error"));
+  }  
+
+  //initialize SmartFET Board
+  HSS.init();
 }
 
 void loop() {
@@ -150,11 +193,13 @@ void loop() {
         targetState = 1;
         ledBlinking = true;
         switchOutput = true;
+        HSS.switchHxOn(1);
       } else {
         switchStateChanged(0);
         targetState = 0;
         ledBlinking = true;
         switchOutput = false;
+        HSS.switchHxOff(1);
       }
     }
   } else {
@@ -169,4 +214,42 @@ void loop() {
       lastBlink = millis();
     }
   }
+
+  // Send switch data
+  udp.beginPacket(signalkServer, signalkPort);
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[2])));
+  udp.write(stringBuffer);
+  udp.write("0");
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[3])));
+  udp.write(stringBuffer);
+  
+  /* Voltage */
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[5])));
+  udp.write(stringBuffer);
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[6])));
+  udp.write(stringBuffer);
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[8])));
+  udp.write(stringBuffer);
+
+  float value = HSS.readVss();
+  udp.write(String(value).c_str());
+  udp.write("},");
+
+  /* Current */
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[5])));
+  udp.write(stringBuffer);
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[7])));
+  udp.write(stringBuffer);
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[8])));
+  udp.write(stringBuffer);
+  
+  value = HSS.readIsx(1);
+  udp.write(String(value).c_str());
+  udp.write("}");
+  
+  /* End of message */
+  strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[4])));
+  udp.write(stringBuffer);
+
+  udp.endPacket();  
 }
