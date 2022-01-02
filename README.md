@@ -10,7 +10,7 @@ This sketch is for AVR based Ardinos, e.g. the Uno or MEGA. It does two things: 
 ### Reading the push button
 Th sketch reads in a push button and on state change sends a PUT-Request to a SignalK-Server. On success, a LED is switched to show to requested state. On failure or while waiting for processing the request, the LED is blinking. More details about the sketch are [here](https://vehicle-hacks.com/2021/05/01/switching-using-signalk-part-2/), german version is [here](https://vehicle-hacks.de/2021/04/30/schalten-mit-signalk-teil-2/).
 ### Switching the load using a smart FET
-By pressing the push button, additionally a load is switched on and off using the smart FET. Currently, there is no rouing throught the SignalK server but the voltage and current of the smart FET are sent to the SignalK server. You can find more about the sketch here, german version is [here]()
+By pressing the push button, additionally a load is switched on and off using the smart FET. Currently, there is no rouing throught the SignalK server but the voltage and current of the smart FET are sent to the SignalK server. You can find more about the sketch here, german version is [here](https://vehicle-hacks.de/2022/01/02/schalten-mit-signalk-teil-3/)
 
 
 ## Arduino-ESP8266-SignalK
