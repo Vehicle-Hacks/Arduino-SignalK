@@ -25,7 +25,7 @@
 
 /* Basic Ethernet variables*/
 byte mac[] = {0x90, 0xA2, 0xDA, 0x11, 0x05, 0xAA};
-IPAddress signalkServer(192, 168, 188, 20); //SignalK Server Address
+IPAddress signalkServer(192, 168, 188, 28); //SignalK Server Address
 EthernetClient ethernetClient;
 WebSocketClient webSocketClient = WebSocketClient(ethernetClient, signalkServer, 3000);
 
@@ -134,6 +134,12 @@ void setup() {
   //start Websocket client
   webSocketClient.begin(F("/signalk/v1/stream?subscribe=none"));
 
+  //initialize switch and LED
+  pinMode(switchPin, INPUT);
+  pinMode(ledPin, OUTPUT);
+
+  lastBlink = millis();
+
   // start UDP
   if (udp.begin(signalkPort))
   {
@@ -143,14 +149,8 @@ void setup() {
     Serial.println(F("UDP error"));
   }  
 
-  //initialize switch and LED
-  pinMode(switchPin, INPUT);
-  pinMode(ledPin, OUTPUT);
-
   //initialize SmartFET Board
   HSS.init();
-
-  lastBlink = millis();
 }
 
 void loop() {
@@ -243,8 +243,7 @@ void loop() {
   strcpy_P(stringBuffer, (char *)pgm_read_word(&(string_table[8])));
   udp.write(stringBuffer);
   
-  int counter = 1;
-  value = HSS.readIsx(counter);
+  value = HSS.readIsx(1);
   udp.write(String(value).c_str());
   udp.write("}");
   
